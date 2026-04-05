@@ -1,0 +1,30 @@
+{
+  "default": {
+    "rois": [
+      {
+        "id": "roi-default",
+        "label": "Default ROI",
+        "type": "bbox",
+        "priority": 0.5,
+        "bbox": { "x": 0.35, "y": 0.35, "w": 0.3, "h": 0.3 }
+      }
+    ]
+  },
+  "cases": {
+    "LIDC-IDRI-0001": {
+      "slices": {
+        "0": {
+          "rois": [
+            {
+              "id": "roi-0001-0",
+              "label": "Example ROI",
+              "type": "bbox",
+              "priority": 0.8,
+              "bbox": { "x": 0.42, "y": 0.38, "w": 0.22, "h": 0.22 }
+            }
+          ]
+        }
+      }
+    }
+  }
+}

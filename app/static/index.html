@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Fatigue_Adapter</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="page">
+      <header class="topbar">
+        <div>
+          <h1>Fatigue_Adapter</h1>
+          <p class="subtitle">Predictive gaze-aware adaptive interface prototype</p>
+        </div>
+        <div class="status">
+          <div class="status-pill" id="state-pill">State: normal</div>
+          <div class="status-pill" id="source-pill">Source: synthetic</div>
+        </div>
+      </header>
+
+      <main class="layout">
+        <section class="viewer-panel">
+          <div class="viewer-header">
+            <div>
+              <div class="label">Case</div>
+              <select id="case-select"></select>
+            </div>
+            <div>
+              <div class="label">Slice</div>
+              <input type="number" id="slice-input" min="0" value="0" />
+            </div>
+            <button id="load-slice" class="button">Load</button>
+          </div>
+
+          <div class="status-panel" id="status-panel">
+            <div class="status-main" id="status-main">State: --</div>
+            <div class="status-sub" id="status-attention">Attention: --</div>
+            <div class="status-sub" id="status-coverage">ROI coverage: --</div>
+            <div class="status-sub" id="status-risk">Risk: --</div>
+            <div class="status-sub" id="status-action">Action: --</div>
+            <div class="status-sub" id="status-outcome">Outcome: --</div>
+            <div class="status-sub" id="status-gaze">Current gaze: --</div>
+            <div class="status-sub" id="status-pred">Predicted next look: --</div>
+            <div class="status-sub" id="status-roi">Critical region: --</div>
+            <div class="status-sub" id="status-threshold">Adaptation threshold reached: --</div>
+            <div class="status-sub" id="status-mode">Current mode: --</div>
+            <div class="status-suggest" id="status-suggest">Suggestion: --</div>
+          </div>
+
+          <div class="image-stage" id="image-stage">
+            <img id="slice-image" alt="CT slice" />
+            <canvas id="roi-canvas"></canvas>
+            <canvas id="gaze-canvas"></canvas>
+            <div class="image-overlay" id="image-overlay">Focus on highlighted region</div>
+          </div>
+
+          <div class="toggle-row">
+            <label><input type="checkbox" id="toggle-roi" checked /> Show ROI</label>
+            <label><input type="checkbox" id="toggle-gaze" checked /> Show gaze</label>
+            <label><input type="checkbox" id="toggle-predict" checked /> Predictive</label>
+            <label><input type="checkbox" id="toggle-adapt" checked /> Adaptive UI</label>
+            <label><input type="checkbox" id="toggle-debug" /> Debug</label>
+          </div>
+
+          <div class="legend-row">
+            <span class="legend-item"><span class="legend-dot gaze"></span> Current gaze</span>
+            <span class="legend-item"><span class="legend-dot pred"></span> Predicted next look</span>
+            <span class="legend-item"><span class="legend-box roi"></span> Critical region</span>
+          </div>
+
+          <div class="card" id="debug-panel">
+            <h2>Metrics (Debug)</h2>
+            <div class="metric" id="metric-dwell">Dwell: --</div>
+            <div class="metric" id="metric-hits">ROI hits: --</div>
+            <div class="metric" id="metric-delay">First fixation: --</div>
+            <div class="metric" id="metric-coverage">ROI coverage: --</div>
+            <div class="metric" id="metric-dispersion">Dispersion: --</div>
+            <div class="metric" id="metric-scan">Scan coverage: --</div>
+            <div class="metric" id="metric-pred-mean">Prediction error mean: --</div>
+            <div class="metric" id="metric-pred-median">Prediction error median: --</div>
+            <div class="metric" id="metric-pred-within">Prediction within 25/50 px: --</div>
+          </div>
+        </section>
+
+        <aside class="side-panel" id="side-panel">
+          <div class="card">
+            <h2>Controls</h2>
+            <div class="control-group">
+              <label>Gaze source</label>
+              <select id="source-select">
+                <option value="synthetic">Synthetic</option>
+                <option value="mouse">Mouse</option>
+                <option value="replay">Replay</option>
+              </select>
+            </div>
+            <div class="control-group">
+              <label>Gaze mode</label>
+              <select id="mode-select">
+                <option value="normal">Normal</option>
+                <option value="drifting">Drifting</option>
+                <option value="overload">Overloaded</option>
+              </select>
+            </div>
+            <div class="control-group">
+              <label>Policy mode</label>
+              <select id="policy-select">
+                <option value="quiet">Quiet</option>
+                <option value="balanced" selected>Balanced</option>
+                <option value="aggressive">Aggressive</option>
+              </select>
+            </div>
+            <div class="control-group">
+              <label>Message min risk</label>
+              <select id="message-min-risk">
+                <option value="low">Low</option>
+                <option value="medium" selected>Medium</option>
+                <option value="high">High</option>
+              </select>
+            </div>
+            <div class="control-group">
+              <label>Intervention min risk</label>
+              <select id="intervention-min-risk">
+                <option value="medium">Medium</option>
+                <option value="high" selected>High</option>
+              </select>
+            </div>
+            <div class="control-group">
+              <label>Intervention cooldown (ms)</label>
+              <input type="number" id="cooldown-ms" min="0" value="2500" />
+            </div>
+            <div class="control-group">
+              <label>Message hold (ms)</label>
+              <input type="number" id="message-hold-ms" min="0" value="1200" />
+            </div>
+            <div class="control-group">
+              <label><input type="checkbox" id="silent-low-risk" checked /> Silent low-risk</label>
+            </div>
+            <button id="reset-button" class="button secondary">Reset</button>
+          </div>
+
+          <div class="card" id="adaptation-card">
+            <h2>Adaptation</h2>
+            <div class="metric" id="adaptation-actions">Actions: --</div>
+            <div class="metric" id="adaptation-message">Message: --</div>
+          </div>
+        </aside>
+      </main>
+    </div>
+
+    <script src="/app.js"></script>
+  </body>
+</html>
+          <div class="card" id="transparency-panel">
+            <h2>Prediction Transparency</h2>
+            <div class="metric" id="pred-mode">Predictor mode: --</div>
+            <div class="metric" id="pred-active">Active predictor: --</div>
+            <div class="metric" id="pred-explain">Explanation: --</div>
+            <div class="metric" id="pred-status">Model status: --</div>
+            <div class="metric" id="pred-confidence">Confidence: --</div>
+            <div class="metric" id="pred-accuracy">Accuracy: --</div>
+            <div class="metric">Dashed line shows projected next look (not actual future gaze).</div>
+          </div>

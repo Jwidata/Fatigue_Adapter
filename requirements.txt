@@ -1,0 +1,9 @@
+fastapi==0.110.0
+uvicorn==0.27.1
+pydantic==2.6.1
+pydicom==2.4.4
+numpy==1.26.4
+pillow==10.2.0
+matplotlib==3.8.3
+torch==2.2.1
+xgboost==2.0.3

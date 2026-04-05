@@ -1,0 +1,52 @@
+{
+  "gaze": {
+    "default_mode": "normal",
+    "default_source": "synthetic"
+  },
+  "attention": {
+    "window_ms": 4000
+  },
+  "state_thresholds": {
+    "roi_coverage_low": 25.0,
+    "dispersion_high": 0.25,
+    "dispersion_low": 0.1,
+    "fixation_delay_ms_high": 1500
+  },
+  "prediction": {
+    "min_points": 6,
+    "max_points": 12,
+    "predictor_mode": "auto",
+    "lstm_weights": "configs/lstm_gaze_weights.pt",
+    "transformer_weights": "configs/transformer_gaze_weights.pt",
+    "gru_weights": "configs/gru_gaze_weights.pt",
+    "cnn_weights": "configs/cnn_gaze_weights.pt",
+    "xgboost_model_x": "configs/xgboost_gaze_model_x.json",
+    "xgboost_model_y": "configs/xgboost_gaze_model_y.json",
+    "log_predictor": true
+  },
+  "risk": {
+    "high_priority": 0.7,
+    "min_roi_priority": 0.6,
+    "high_confidence": 0.5
+  },
+  "policy": {
+    "message_min_risk": "medium",
+    "intervention_min_risk": "high",
+    "cooldown_ms": 2500,
+    "message_hold_ms": 1200
+  },
+  "outcome": {
+    "window_ms": 2000
+  },
+  "ui": {
+    "predictive_enabled": true,
+    "adaptive_enabled": true,
+    "policy_mode": "balanced",
+    "silent_low_risk": true
+  },
+  "dataset": {
+    "mode": "full",
+    "case_list_file": ""
+  },
+  "roi_debug": false
+}

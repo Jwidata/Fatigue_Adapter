@@ -1,0 +1,16 @@
+.venv/
+__pycache__/
+*.pyc
+
+Data/
+data/
+artifacts/
+
+*.pt
+*.npz
+*.jsonl
+
+configs/*weights*.pt
+configs/*gaze_model*.json
+
+.DS_Store

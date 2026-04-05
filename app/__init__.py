@@ -1,0 +1,1 @@
+"""Fatigue_Adapter package."""
