@@ -13,8 +13,8 @@ uvicorn app.main:app --reload
 
 Open `http://127.0.0.1:8000` in a browser.
 
-The demo reads from `Data/medicalimages` and will auto-index DICOM series into `data/catalog.json`.
-If you add new data or want to refresh SEG mappings, delete `data/catalog.json` and restart the app.
+The demo reads from `Data/medicalimages` and will auto-index DICOM series into `Data/catalog.json`.
+If you add new data or want to refresh SEG mappings, delete `Data/catalog.json` and restart the app.
 
 ## Project layout
 
@@ -48,6 +48,7 @@ The ROI service (`app/services/roi_service.py`) normalizes everything to a commo
 - Optional polygons or masks (mask placeholder for now)
 
 SEG is parsed when available; manual ROI fallback still applies via `configs/manual_rois.json`.
+BBox, polygon, or mask shapes are supported; masks are rendered as heatmaps in the UI.
 
 ## Gaze coordinate mapping
 
@@ -96,9 +97,9 @@ Calmness controls (configurable):
 
 ## Prediction transparency
 
-The UI includes a "Prediction Transparency" panel that reports:
+The UI includes a "Model Insights" panel that reports:
 
-- predictor type (heuristic, LSTM, Transformer)
+- predictor type (xgboost, GRU, Transformer, baselines)
 - whether weights are loaded
 - confidence and evaluation status
 
@@ -112,15 +113,29 @@ The prototype logs prediction error by comparing the last predicted point to the
 Debug mode shows rolling mean/median error and percentage within 25/50 px.
 Raw evaluation logs are stored in `data/prediction_eval.jsonl`.
 
+## Datasets
+
+This project expects:
+
+- **LIDC-IDRI** DICOM CT scans under `Data/medicalimages/lidc_idri/` (case folders like `LIDC-IDRI-0001/`).
+- **Gaze logs** stored in `Data/gaze_log.jsonl` or generated via synthetic/replay adapters.
+- **Derived gaze prediction dataset** stored in `Data/gaze_prediction_dataset.npz` with summary in `Data/gaze_prediction_dataset_summary.json`.
+
+The dataset summary includes:
+
+- `sequence_len`, `horizon`, `target` (delta/absolute/residual)
+- `feature_names`, `feature_dim`
+- `num_train_samples`, `num_val_samples`, `num_test_samples`
+
 ## Dataset inspection + subsets
 
 Run `python scripts/inspect_full_imaging_dataset.py` to generate:
 
-- `data/full_dataset_report.json`
-- `data/full_dataset_report.csv`
-- `data/relevant_cases_ranked.csv`
-- `data/demo_subset_cases.txt`
-- `data/eval_subset_cases.txt`
+- `Data/full_dataset_report.json`
+- `Data/full_dataset_report.csv`
+- `Data/relevant_cases_ranked.csv`
+- `Data/demo_subset_cases.txt`
+- `Data/eval_subset_cases.txt`
 
 ROI sanity checks are saved to `artifacts/roi_checks/`.
 
@@ -130,6 +145,30 @@ Configure in `configs/default_config.json`:
 
 - `dataset.mode`: `full`, `demo_subset`, or `eval_subset`
 - `dataset.case_list_file`: optional manual case list
+
+## Evaluation metrics
+
+Offline evaluation writes to `artifacts/eval/` and includes:
+
+- **mean_error**, **median_error**, **rmse** (pixels)
+- **within_25/50/75/100** (% within threshold)
+- **roi_in** (% predictions inside ROI)
+- **roi_near** (% predictions near ROI)
+- **roi_error** (mean distance to ROI center)
+
+Use `scripts/evaluate_predictors.py` to refresh results and plots.
+
+## Interpretability and consistency
+
+The system surfaces model transparency and interpretability in the UI:
+
+- **Active model name** and explanation (XGBoost/GRU/Transformer/baselines)
+- **Confidence bar** for the current prediction
+- **Accuracy summary** from offline evaluation (mean error, within-50)
+- **ROI debug overlay** with coordinates and fallback ROI for troubleshooting
+- **Risk bar** and action status to explain adaptation choices
+
+To keep consistency between training and inference, the runtime loads feature names and target mode from `Data/gaze_prediction_dataset_summary.json`.
 
 ## Limitations
 
@@ -145,8 +184,11 @@ Configure in `configs/default_config.json`:
 - `GET /api/cases/{case_id}/slices/{slice_id}`
 - `GET /api/roi/{case_id}/{slice_id}`
 - `POST /api/gaze`
+- `POST /api/gaze_stream`
 - `GET /api/state`
 - `GET /api/prediction`
+- `GET /api/predict`
+- `GET /api/roi_status`
 - `GET /api/prediction/info`
 - `GET /api/prediction/metrics`
 - `GET /api/risk`
@@ -154,6 +196,8 @@ Configure in `configs/default_config.json`:
 - `GET /api/adaptation/outcome`
 - `GET /api/policy/info`
 - `GET /api/predictors`
+- `GET /api/predictor/results`
+- `GET /api/dataset/summary`
 - `POST /api/mode`
 - `POST /api/reset`
 
@@ -168,7 +212,7 @@ Configured in `configs/default_config.json`:
 - `predictor_mode: heuristic` uses velocity-based prediction
 - `predictor_mode: lstm` uses the LSTM scaffold (requires weights)
 - `predictor_mode: transformer` uses the Transformer scaffold (requires weights)
-- `predictor_mode: auto` uses Transformer if available, else LSTM, else heuristic
+- `predictor_mode: auto` uses XGBoost primary (configurable), then GRU, then Transformer
 
 If LSTM weights are missing, the system logs a fallback and continues.
 If Transformer weights are missing, the system falls back the same way.
@@ -188,7 +232,7 @@ Predictors:
 - **Transformer**: learned attention-based sequence model (requires weights)
 - **GRU**: lightweight recurrent baseline (requires weights)
 - **Temporal CNN**: 1D convolution baseline (requires weights)
-- **XGBoost**: engineered-feature baseline (requires weights)
+- **XGBoost**: engineered-feature baseline (primary real-time predictor)
 
 The system never claims a learned model is active unless weights are loaded.
 If weights are missing, it falls back to heuristic and reports the fallback in the UI.
@@ -230,4 +274,14 @@ The prediction dataset normalizes gaze by image width/height and includes derive
 - x_norm, y_norm
 - dx, dy
 - speed
-- direction angle
+- acceleration
+- direction (sin/cos)
+- distance to ROI center
+- inside ROI
+- distance to ROI edge
+
+Target modes:
+
+- `delta` (next-step delta)
+- `absolute` (next position)
+- `residual` (delta minus constant-velocity baseline)
