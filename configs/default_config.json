@@ -1,7 +1,8 @@
 {
   "gaze": {
     "default_mode": "normal",
-    "default_source": "synthetic"
+    "default_source": "synthetic",
+    "buffer_size": 300
   },
   "attention": {
     "window_ms": 4000
@@ -15,6 +16,24 @@
   "prediction": {
     "min_points": 6,
     "max_points": 12,
+    "sequence_len": 30,
+    "target_mode": "delta",
+    "dataset_summary": "data/gaze_prediction_dataset_summary.json",
+    "selection_strategy": "xgboost_primary",
+    "high_confidence_mode": false,
+    "feature_names": [
+      "x",
+      "y",
+      "dx",
+      "dy",
+      "speed",
+      "accel",
+      "dir_sin",
+      "dir_cos",
+      "dist_roi",
+      "inside_roi",
+      "dist_roi_edge"
+    ],
     "predictor_mode": "auto",
     "lstm_weights": "configs/lstm_gaze_weights.pt",
     "transformer_weights": "configs/transformer_gaze_weights.pt",
@@ -33,7 +52,8 @@
     "message_min_risk": "medium",
     "intervention_min_risk": "high",
     "cooldown_ms": 2500,
-    "message_hold_ms": 1200
+    "message_hold_ms": 1200,
+    "adaptation_hold_ms": 800
   },
   "outcome": {
     "window_ms": 2000
@@ -48,5 +68,6 @@
     "mode": "full",
     "case_list_file": ""
   },
-  "roi_debug": false
+  "roi_debug": false,
+  "roi_near_threshold_px": 30
 }

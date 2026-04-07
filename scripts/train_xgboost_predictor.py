@@ -36,8 +36,8 @@ def main():
     model_y.fit(X_train_flat, y_train[:, 1])
 
     weights_path = Path("configs/xgboost_gaze_model.json")
-    model_x.save_model(weights_path.with_name("xgboost_gaze_model_x.json"))
-    model_y.save_model(weights_path.with_name("xgboost_gaze_model_y.json"))
+    model_x.get_booster().save_model(weights_path.with_name("xgboost_gaze_model_x.json"))
+    model_y.get_booster().save_model(weights_path.with_name("xgboost_gaze_model_y.json"))
 
     history_path = Path("artifacts/xgboost_config.json")
     history_path.parent.mkdir(parents=True, exist_ok=True)

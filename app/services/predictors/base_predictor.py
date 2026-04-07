@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import List, Optional, Tuple
+from typing import Optional, Tuple
 
-from app.models.schemas import GazePoint
+from app.services.feature_builder import FeatureSequence
 
 
 class BasePredictor(ABC):
@@ -14,8 +14,8 @@ class BasePredictor(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def predict(self, sequence: List[GazePoint]) -> Optional[Tuple[float, float, float]]:
-        """Return (x, y, confidence) or None."""
+    def predict(self, sequence: FeatureSequence) -> Optional[Tuple[float, float, float]]:
+        """Return (x_norm, y_norm, confidence) or None."""
         raise NotImplementedError
 
     @abstractmethod

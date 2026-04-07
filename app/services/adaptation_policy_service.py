@@ -18,8 +18,11 @@ class AdaptationPolicyService:
         self.intervention_min_risk = policy_cfg.get("intervention_min_risk", "high")
         self.cooldown_ms = int(policy_cfg.get("cooldown_ms", 2500))
         self.message_hold_ms = int(policy_cfg.get("message_hold_ms", 1200))
+        self.adaptation_hold_ms = int(policy_cfg.get("adaptation_hold_ms", 800))
         self.last_intervention_ts = None
         self.silent_low_risk = bool(config.get("ui", {}).get("silent_low_risk", True))
+        self._last_command = None
+        self._last_command_ts = None
         if self.policy_mode:
             self.set_policy_mode(self.policy_mode)
 
@@ -106,6 +109,8 @@ class AdaptationPolicyService:
         response = self._wrap(command)
         if command.actions:
             self.last_intervention_ts = response.timestamp
+        self._last_command = command
+        self._last_command_ts = response.timestamp
         return response
 
     def get_latest(self) -> AdaptationResponse:
@@ -125,7 +130,11 @@ class AdaptationPolicyService:
         )
 
     def _wrap(self, command: AdaptationCommand) -> AdaptationResponse:
-        response = AdaptationResponse(command=command, timestamp=time.time() * 1000, metrics=None)
+        now = time.time() * 1000
+        if self._last_command and self._last_command.actions and not command.actions:
+            if self._last_command_ts and (now - self._last_command_ts) < self.adaptation_hold_ms:
+                command = self._last_command
+        response = AdaptationResponse(command=command, timestamp=now, metrics=None)
         self._latest = response
         return response
 

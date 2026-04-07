@@ -14,12 +14,16 @@ class CatalogService:
     def __init__(self, config: Dict):
         self.config = config
         self._catalog: Dict[str, Dict] = {}
-        self._catalog_path = Path(__file__).resolve().parents[2] / "data" / "catalog.json"
         self._data_root = Path(__file__).resolve().parents[2] / "Data" / "medicalimages"
+        self._catalog_path = Path(__file__).resolve().parents[2] / "Data" / "catalog.json"
+        self._catalog_path_fallback = Path(__file__).resolve().parents[2] / "data" / "catalog.json"
 
     def load_or_build(self):
         if self._catalog_path.exists():
             with self._catalog_path.open("r", encoding="utf-8") as handle:
+                self._catalog = json.load(handle)
+        elif self._catalog_path_fallback.exists():
+            with self._catalog_path_fallback.open("r", encoding="utf-8") as handle:
                 self._catalog = json.load(handle)
         else:
             self._catalog = self._build_catalog()
@@ -38,9 +42,13 @@ class CatalogService:
             return
 
         if mode == "demo_subset":
-            case_list_path = Path(__file__).resolve().parents[2] / "data" / "demo_subset_cases.txt"
+            case_list_path = Path(__file__).resolve().parents[2] / "Data" / "demo_subset_cases.txt"
+            if not case_list_path.exists():
+                case_list_path = Path(__file__).resolve().parents[2] / "data" / "demo_subset_cases.txt"
         elif mode == "eval_subset":
-            case_list_path = Path(__file__).resolve().parents[2] / "data" / "eval_subset_cases.txt"
+            case_list_path = Path(__file__).resolve().parents[2] / "Data" / "eval_subset_cases.txt"
+            if not case_list_path.exists():
+                case_list_path = Path(__file__).resolve().parents[2] / "data" / "eval_subset_cases.txt"
         else:
             case_list_path = Path(case_list_file) if case_list_file else None
 

@@ -33,19 +33,39 @@
             <button id="load-slice" class="button">Load</button>
           </div>
 
-          <div class="status-panel" id="status-panel">
-            <div class="status-main" id="status-main">State: --</div>
-            <div class="status-sub" id="status-attention">Attention: --</div>
-            <div class="status-sub" id="status-coverage">ROI coverage: --</div>
-            <div class="status-sub" id="status-risk">Risk: --</div>
-            <div class="status-sub" id="status-action">Action: --</div>
-            <div class="status-sub" id="status-outcome">Outcome: --</div>
-            <div class="status-sub" id="status-gaze">Current gaze: --</div>
-            <div class="status-sub" id="status-pred">Predicted next look: --</div>
-            <div class="status-sub" id="status-roi">Critical region: --</div>
-            <div class="status-sub" id="status-threshold">Adaptation threshold reached: --</div>
-            <div class="status-sub" id="status-mode">Current mode: --</div>
-            <div class="status-suggest" id="status-suggest">Suggestion: --</div>
+          <div class="live-analysis" id="status-panel">
+            <div class="section-title">Live Analysis</div>
+            <div class="live-grid">
+              <div class="live-card status" id="status-card">
+                <div class="live-label">Status</div>
+                <div class="live-value" id="status-main">--</div>
+                <div class="live-sub" id="status-attention">--</div>
+              </div>
+              <div class="live-card risk" id="risk-card">
+                <div class="live-label">Risk</div>
+                <div class="risk-bar">
+                  <div class="risk-fill" id="risk-fill"></div>
+                </div>
+                <div class="live-sub" id="status-risk">--</div>
+              </div>
+              <div class="live-card action" id="action-card">
+                <div class="live-label">Action</div>
+                <div class="live-value" id="status-action">--</div>
+                <div class="live-sub" id="status-suggest">--</div>
+              </div>
+            </div>
+            <div class="live-row">
+              <div class="live-chip" id="status-roi">Critical region: --</div>
+              <div class="live-chip" id="status-coverage">ROI coverage: --</div>
+              <div class="live-chip" id="status-mode">Mode: --</div>
+              <div class="live-chip" id="status-data">Dataset: --</div>
+            </div>
+            <div class="live-row">
+              <div class="live-chip" id="status-gaze">Current gaze: --</div>
+              <div class="live-chip" id="status-pred">Predicted next look: --</div>
+              <div class="live-chip" id="status-outcome">Outcome: --</div>
+              <div class="live-chip" id="status-threshold">Adaptation threshold: --</div>
+            </div>
           </div>
 
           <div class="image-stage" id="image-stage">
@@ -56,7 +76,8 @@
           </div>
 
           <div class="toggle-row">
-            <label><input type="checkbox" id="toggle-roi" checked /> Show ROI</label>
+            <label><input type="checkbox" id="toggle-roi" checked /> Show Critical Region</label>
+            <label><input type="checkbox" id="toggle-roi-debug" /> Show ROI debug</label>
             <label><input type="checkbox" id="toggle-gaze" checked /> Show gaze</label>
             <label><input type="checkbox" id="toggle-predict" checked /> Predictive</label>
             <label><input type="checkbox" id="toggle-adapt" checked /> Adaptive UI</label>
@@ -70,20 +91,77 @@
           </div>
 
           <div class="card" id="debug-panel">
-            <h2>Metrics (Debug)</h2>
-            <div class="metric" id="metric-dwell">Dwell: --</div>
-            <div class="metric" id="metric-hits">ROI hits: --</div>
-            <div class="metric" id="metric-delay">First fixation: --</div>
-            <div class="metric" id="metric-coverage">ROI coverage: --</div>
-            <div class="metric" id="metric-dispersion">Dispersion: --</div>
-            <div class="metric" id="metric-scan">Scan coverage: --</div>
-            <div class="metric" id="metric-pred-mean">Prediction error mean: --</div>
-            <div class="metric" id="metric-pred-median">Prediction error median: --</div>
-            <div class="metric" id="metric-pred-within">Prediction within 25/50 px: --</div>
+            <h2>Metrics</h2>
+            <div class="metric-grid">
+              <div class="metric-card">
+                <div class="metric-label">ROI Coverage</div>
+                <div class="metric-gauge" id="metric-coverage-gauge"></div>
+                <div class="metric-value" id="metric-coverage">--</div>
+              </div>
+              <div class="metric-card">
+                <div class="metric-label">Prediction Error</div>
+                <div class="metric-bar"><span id="metric-error-bar"></span></div>
+                <div class="metric-value" id="metric-pred-mean">--</div>
+              </div>
+              <div class="metric-card">
+                <div class="metric-label">Scan Coverage</div>
+                <div class="metric-bar"><span id="metric-scan-bar"></span></div>
+                <div class="metric-value" id="metric-scan">--</div>
+              </div>
+              <div class="metric-card">
+                <div class="metric-label">Accuracy Within 50px</div>
+                <div class="metric-highlight" id="metric-pred-within">--</div>
+              </div>
+            </div>
+            <div class="metric-row">
+              <div class="metric" id="metric-dwell">Dwell: --</div>
+              <div class="metric" id="metric-hits">ROI hits: --</div>
+              <div class="metric" id="metric-delay">First fixation: --</div>
+              <div class="metric" id="metric-dispersion">Dispersion: --</div>
+              <div class="metric" id="metric-pred-median">Prediction median: --</div>
+            </div>
+          </div>
+
+          <div class="card" id="transparency-panel">
+            <h2>Model Insights</h2>
+            <div class="metric" id="pred-mode">Predictor mode: --</div>
+            <div class="metric" id="pred-active">Active predictor: --</div>
+            <div class="metric" id="pred-explain">Explanation: --</div>
+            <div class="metric" id="pred-status">Model status: --</div>
+            <div class="metric">Confidence</div>
+            <div class="confidence-bar">
+              <span id="pred-confidence-bar"></span>
+            </div>
+            <div class="metric" id="pred-confidence">Confidence: --</div>
+            <div class="metric" id="pred-accuracy">Accuracy: --</div>
+            <div class="metric">Dashed line shows projected next look (not actual future gaze).</div>
           </div>
         </section>
 
         <aside class="side-panel" id="side-panel">
+          <div class="card" id="model-card">
+            <div class="card-title-row">
+              <h2>Model Health</h2>
+              <span class="badge" id="model-badge">--</span>
+            </div>
+            <div class="metric" id="model-name">Model: --</div>
+            <div class="metric" id="model-score">Score: --</div>
+            <div class="metric" id="model-within">Within 50px: --</div>
+            <div class="metric" id="model-efficiency">Efficiency: --</div>
+            <div class="metric" id="model-description">Description: --</div>
+          </div>
+
+          <div class="card" id="dataset-card">
+            <div class="card-title-row">
+              <h2>Dataset</h2>
+              <span class="badge subtle" id="dataset-badge">--</span>
+            </div>
+            <div class="metric" id="dataset-summary">Summary: --</div>
+            <div class="metric" id="dataset-features">Features: --</div>
+            <div class="metric" id="dataset-target">Target: --</div>
+            <div class="metric" id="dataset-samples">Samples: --</div>
+          </div>
+
           <div class="card">
             <h2>Controls</h2>
             <div class="control-group">
@@ -151,13 +229,3 @@
     <script src="/app.js"></script>
   </body>
 </html>
-          <div class="card" id="transparency-panel">
-            <h2>Prediction Transparency</h2>
-            <div class="metric" id="pred-mode">Predictor mode: --</div>
-            <div class="metric" id="pred-active">Active predictor: --</div>
-            <div class="metric" id="pred-explain">Explanation: --</div>
-            <div class="metric" id="pred-status">Model status: --</div>
-            <div class="metric" id="pred-confidence">Confidence: --</div>
-            <div class="metric" id="pred-accuracy">Accuracy: --</div>
-            <div class="metric">Dashed line shows projected next look (not actual future gaze).</div>
-          </div>

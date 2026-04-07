@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import time
+from collections import deque
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Deque, Dict, List, Optional
 
 from app.adapters.gaze.replay import ReplayGazeAdapter
 from app.adapters.gaze.synthetic import SyntheticGazeAdapter
+from app.adapters.gaze.tobii import TobiiGazeAdapter
 from app.models.schemas import GazePoint
 from app.services.catalog_service import CatalogService
 
@@ -14,18 +16,20 @@ class GazeManager:
     def __init__(self, catalog: CatalogService, config: Dict):
         self.catalog = catalog
         self.config = config
-        self.buffer: List[GazePoint] = []
+        self.max_buffer = int(config.get("gaze", {}).get("buffer_size", 300))
+        self.buffer: Deque[GazePoint] = deque(maxlen=self.max_buffer)
         self.window_ms = int(config.get("attention", {}).get("window_ms", 4000))
         self.mode = config.get("gaze", {}).get("default_mode", "normal")
         self.source = config.get("gaze", {}).get("default_source", "synthetic")
         replay_path = Path(__file__).resolve().parents[2] / "configs" / "replay_gaze.csv"
         self.synthetic = SyntheticGazeAdapter(self.mode)
         self.replay = ReplayGazeAdapter(replay_path if replay_path.exists() else None)
+        self.tobii = TobiiGazeAdapter()
         self.case_id = None
         self.slice_id = None
 
     def reset(self):
-        self.buffer = []
+        self.buffer = deque(maxlen=self.max_buffer)
 
     def set_mode(self, mode: str):
         self.mode = mode
@@ -50,6 +54,11 @@ class GazeManager:
         cutoff = now - self.window_ms
         return [p for p in self.buffer if p.timestamp >= cutoff]
 
+    def get_recent_points(self, count: int) -> List[GazePoint]:
+        if count <= 0:
+            return []
+        return list(self.buffer)[-count:]
+
     def sample_if_needed(self, image_width: int, image_height: int) -> Optional[GazePoint]:
         timestamp = time.time() * 1000
         if self.source == "synthetic":
@@ -58,6 +67,10 @@ class GazeManager:
             point = self.replay.next_point(image_width, image_height, timestamp)
             if point:
                 point.timestamp = timestamp
+        elif self.source == "tobii":
+            point = self.tobii.next_point(image_width, image_height, timestamp)
+            if point is None:
+                point = self.synthetic.next_point(image_width, image_height, timestamp)
         else:
             point = None
         if point:

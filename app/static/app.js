@@ -5,6 +5,7 @@ const sliceImage = document.getElementById("slice-image");
 const roiCanvas = document.getElementById("roi-canvas");
 const gazeCanvas = document.getElementById("gaze-canvas");
 const toggleRoi = document.getElementById("toggle-roi");
+const toggleRoiDebug = document.getElementById("toggle-roi-debug");
 const toggleGaze = document.getElementById("toggle-gaze");
 const togglePredict = document.getElementById("toggle-predict");
 const toggleAdapt = document.getElementById("toggle-adapt");
@@ -34,12 +35,29 @@ const statusPred = document.getElementById("status-pred");
 const statusRoi = document.getElementById("status-roi");
 const statusThreshold = document.getElementById("status-threshold");
 const statusMode = document.getElementById("status-mode");
+const statusData = document.getElementById("status-data");
+const riskFill = document.getElementById("risk-fill");
+const predConfidenceBar = document.getElementById("pred-confidence-bar");
+const metricCoverageGauge = document.getElementById("metric-coverage-gauge");
+const metricErrorBar = document.getElementById("metric-error-bar");
+const metricScanBar = document.getElementById("metric-scan-bar");
 const predMode = document.getElementById("pred-mode");
 const predActive = document.getElementById("pred-active");
 const predExplain = document.getElementById("pred-explain");
 const predStatus = document.getElementById("pred-status");
 const predConfidence = document.getElementById("pred-confidence");
 const predAccuracy = document.getElementById("pred-accuracy");
+const modelBadge = document.getElementById("model-badge");
+const modelName = document.getElementById("model-name");
+const modelScore = document.getElementById("model-score");
+const modelWithin = document.getElementById("model-within");
+const modelEfficiency = document.getElementById("model-efficiency");
+const modelDescription = document.getElementById("model-description");
+const datasetBadge = document.getElementById("dataset-badge");
+const datasetSummary = document.getElementById("dataset-summary");
+const datasetFeatures = document.getElementById("dataset-features");
+const datasetTarget = document.getElementById("dataset-target");
+const datasetSamples = document.getElementById("dataset-samples");
 const imageStage = document.getElementById("image-stage");
 const imageOverlay = document.getElementById("image-overlay");
 const debugPanel = document.getElementById("debug-panel");
@@ -74,21 +92,37 @@ let lastMessageUpdate = 0;
 let lastMessageText = "";
 let policyInfo = null;
 let currentRiskLevel = "low";
+let roiMaskCache = null;
+let roiMaskDims = null;
+let roiFallbackActive = false;
+let lastRoiCenterCanvas = null;
+let lastInRoi = false;
+let predictorResults = null;
+let datasetInfo = null;
 
 async function fetchCases() {
   const response = await fetch("/api/cases");
   const data = await response.json();
   caseSelect.innerHTML = "";
+  if (!data.cases || data.cases.length === 0) {
+    const option = document.createElement("option");
+    option.value = "";
+    option.textContent = "No cases found";
+    caseSelect.appendChild(option);
+    currentCase = null;
+    statusData.textContent = "Dataset: no cases loaded — check Data directory";
+    loadSliceBtn.disabled = true;
+    return;
+  }
   data.cases.forEach((entry) => {
     const option = document.createElement("option");
     option.value = entry.case_id;
     option.textContent = entry.case_id;
     caseSelect.appendChild(option);
   });
-  if (data.cases.length > 0) {
-    currentCase = data.cases[0].case_id;
-    caseSelect.value = currentCase;
-  }
+  currentCase = data.cases[0].case_id;
+  caseSelect.value = currentCase;
+  loadSliceBtn.disabled = false;
 }
 
 async function loadSlice() {
@@ -100,59 +134,204 @@ async function loadSlice() {
   await fetchRoi();
 }
 
+async function fetchPredictorResults() {
+  const response = await fetch("/api/predictor/results");
+  const data = await response.json();
+  predictorResults = data.status === "ok" ? data.results : null;
+}
+
+async function fetchDatasetSummary() {
+  const response = await fetch("/api/dataset/summary");
+  const data = await response.json();
+  datasetInfo = data.status === "ok" ? data.summary : null;
+  if (datasetInfo && datasetInfo.num_train_samples !== undefined) {
+    statusData.textContent = `Dataset: ${datasetInfo.num_train_samples} train / ${datasetInfo.num_val_samples} val / ${datasetInfo.num_test_samples} test`;
+  }
+}
+
 async function fetchRoi() {
   if (!currentCase) return;
   const response = await fetch(`/api/roi/${currentCase}/${currentSlice}`);
   const data = await response.json();
   currentRoi = data.rois || [];
   imageDims = { width: data.image_width, height: data.image_height };
+  if (imageDims.width && imageDims.height) {
+    resizeCanvas();
+  }
+  roiMaskCache = null;
+  roiMaskDims = null;
+  console.log("ROI payload", {
+    image_width: data.image_width,
+    image_height: data.image_height,
+    rois: currentRoi.map((roi) => ({
+      type: roi.type,
+      bbox: roi.bbox,
+      mask_shape: Array.isArray(roi.mask)
+        ? [roi.mask.length, roi.mask[0] ? roi.mask[0].length : 0]
+        : roi.mask && roi.mask.encoded
+          ? "encoded"
+          : null,
+    })),
+  });
   drawRoi();
 }
 
 function resizeCanvas() {
   const rect = sliceImage.getBoundingClientRect();
-  roiCanvas.width = rect.width;
-  roiCanvas.height = rect.height;
-  gazeCanvas.width = rect.width;
-  gazeCanvas.height = rect.height;
+  let width = rect.width;
+  let height = rect.height;
+  if (!width || !height) {
+    const stageRect = imageStage.getBoundingClientRect();
+    width = stageRect.width;
+    height = stageRect.height;
+  }
+  if (!width || !height) {
+    return;
+  }
+  roiCanvas.width = width;
+  roiCanvas.height = height;
+  gazeCanvas.width = width;
+  gazeCanvas.height = height;
+}
+
+function getScale() {
+  if (!imageDims.width || !imageDims.height) {
+    return { scaleX: 1, scaleY: 1 };
+  }
+  return {
+    scaleX: roiCanvas.width / imageDims.width,
+    scaleY: roiCanvas.height / imageDims.height,
+  };
+}
+
+function normalizeBbox(bbox) {
+  if (!bbox) return null;
+  const x = bbox.x ?? 0;
+  const y = bbox.y ?? 0;
+  const w = bbox.w ?? bbox.width ?? 0;
+  const h = bbox.h ?? bbox.height ?? 0;
+  const isNormalized = Math.max(x, y, w, h) <= 1.0;
+  return { x, y, w, h, isNormalized };
+}
+
+function getFallbackRoi() {
+  const size = 120;
+  const cx = imageDims.width / 2;
+  const cy = imageDims.height / 2;
+  return [{ type: "bbox", bbox: { x: cx - size / 2, y: cy - size / 2, width: size, height: size } }];
+}
+
+function buildMaskCache(mask) {
+  if (!Array.isArray(mask) || mask.length === 0) return null;
+  const rows = mask.length;
+  const cols = Array.isArray(mask[0]) ? mask[0].length : 0;
+  if (!rows || !cols) return null;
+  const offscreen = document.createElement("canvas");
+  offscreen.width = cols;
+  offscreen.height = rows;
+  const ctx = offscreen.getContext("2d");
+  const imageData = ctx.createImageData(cols, rows);
+  for (let y = 0; y < rows; y += 1) {
+    for (let x = 0; x < cols; x += 1) {
+      const idx = (y * cols + x) * 4;
+      const value = mask[y][x] ? 255 : 0;
+      imageData.data[idx] = 255;
+      imageData.data[idx + 1] = 60;
+      imageData.data[idx + 2] = 60;
+      imageData.data[idx + 3] = value;
+    }
+  }
+  ctx.putImageData(imageData, 0, 0);
+  return { canvas: offscreen, rows, cols };
 }
 
 function drawRoi() {
+  if (!imageDims.width || !imageDims.height) return;
   resizeCanvas();
+  if (!roiCanvas.width || !roiCanvas.height) return;
   const ctx = roiCanvas.getContext("2d");
   ctx.clearRect(0, 0, roiCanvas.width, roiCanvas.height);
-  if (!toggleRoi.checked) return;
-  if (!currentRoi.length) {
-    ctx.fillStyle = "rgba(0, 0, 0, 0.6)";
-    ctx.fillRect(16, 16, 240, 26);
-    ctx.fillStyle = "#fff";
-    ctx.font = "13px 'Palatino Linotype', serif";
-    ctx.fillText("No ROI available for this slice", 24, 34);
-    return;
+  const showRoi = toggleRoi.checked || toggleRoiDebug.checked;
+  if (!showRoi) return;
+  let rois = currentRoi;
+  if (!rois.length) {
+    console.error("ROI missing");
+    rois = getFallbackRoi();
+    roiFallbackActive = true;
+  } else {
+    roiFallbackActive = false;
   }
-  ctx.strokeStyle = "rgba(255, 214, 10, 0.95)";
-  ctx.lineWidth = 4;
-  ctx.fillStyle = "rgba(255, 214, 10, 0.25)";
-  currentRoi.forEach((roi) => {
+  const { scaleX, scaleY } = getScale();
+  if (!scaleX || !scaleY) return;
+  lastRoiCenterCanvas = null;
+  ctx.strokeStyle = "rgba(255, 59, 47, 0.95)";
+  ctx.lineWidth = 3;
+  ctx.fillStyle = "rgba(255, 59, 47, 0.25)";
+  rois.forEach((roi) => {
+    if (roi.mask && Array.isArray(roi.mask)) {
+      if (!roiMaskCache) {
+        roiMaskCache = buildMaskCache(roi.mask);
+        roiMaskDims = roiMaskCache ? { width: roiMaskCache.cols, height: roiMaskCache.rows } : null;
+      }
+      if (roiMaskCache) {
+        ctx.globalAlpha = 0.3;
+        ctx.drawImage(roiMaskCache.canvas, 0, 0, roiCanvas.width, roiCanvas.height);
+        ctx.globalAlpha = 1.0;
+      }
+    }
     if (roi.type === "bbox" && roi.bbox) {
-      const x = roi.bbox.x * roiCanvas.width;
-      const y = roi.bbox.y * roiCanvas.height;
-      const w = roi.bbox.w * roiCanvas.width;
-      const h = roi.bbox.h * roiCanvas.height;
+      const normalized = normalizeBbox(roi.bbox);
+      if (!normalized) return;
+      const imageX = normalized.isNormalized ? normalized.x * imageDims.width : normalized.x;
+      const imageY = normalized.isNormalized ? normalized.y * imageDims.height : normalized.y;
+      const imageW = normalized.isNormalized ? normalized.w * imageDims.width : normalized.w;
+      const imageH = normalized.isNormalized ? normalized.h * imageDims.height : normalized.h;
+      const x = imageX * scaleX;
+      const y = imageY * scaleY;
+      const w = imageW * scaleX;
+      const h = imageH * scaleY;
+      const area = Math.max(0, w) * Math.max(0, h);
+      console.log("ROI render", {
+        bbox: { x: imageX, y: imageY, w: imageW, h: imageH },
+        image_size: { width: imageDims.width, height: imageDims.height },
+        canvas_size: { width: roiCanvas.width, height: roiCanvas.height },
+        area,
+      });
+      if (!area) {
+        console.error("ROI area is zero");
+      }
       ctx.fillRect(x, y, w, h);
       ctx.strokeRect(x, y, w, h);
       ctx.fillStyle = "rgba(0, 0, 0, 0.6)";
-      ctx.fillRect(x, Math.max(0, y - 22), 150, 20);
+      ctx.fillRect(x, Math.max(0, y - 22), 170, 20);
       ctx.fillStyle = "#fff";
       ctx.font = "12px 'Palatino Linotype', serif";
-      ctx.fillText("Critical region", x + 6, Math.max(14, y - 8));
-      ctx.fillStyle = "rgba(255, 214, 10, 0.2)";
+      ctx.fillText(roiFallbackActive ? "DEBUG ROI" : "Critical Region", x + 6, Math.max(14, y - 8));
+      lastRoiCenterCanvas = { x: x + w / 2, y: y + h / 2 };
+      if (toggleRoiDebug.checked) {
+        ctx.fillStyle = "rgba(0, 0, 0, 0.7)";
+        ctx.fillRect(x, y + h + 4, 220, 18);
+        ctx.fillStyle = "#fff";
+        ctx.font = "11px 'Palatino Linotype', serif";
+        ctx.fillText(`x:${x.toFixed(1)} y:${y.toFixed(1)} w:${w.toFixed(1)} h:${h.toFixed(1)}`, x + 6, y + h + 18);
+      }
+      ctx.fillStyle = "rgba(255, 59, 47, 0.2)";
+    }
+    if (!roi) {
+      console.error("ROI missing");
     }
   });
+  if (toggleRoi.checked || toggleRoiDebug.checked) {
+    roiCanvas.style.animation = "roiPulse 2.6s ease-in-out infinite";
+  } else {
+    roiCanvas.style.animation = "none";
+  }
 }
 
 function drawGaze(point, prediction) {
+  if (!imageDims.width || !imageDims.height) return;
   resizeCanvas();
+  if (!gazeCanvas.width || !gazeCanvas.height) return;
   const ctx = gazeCanvas.getContext("2d");
   ctx.clearRect(0, 0, gazeCanvas.width, gazeCanvas.height);
   if (!toggleGaze.checked || !point || imageDims.width === 0 || imageDims.height === 0) return;
@@ -203,6 +382,17 @@ function drawGaze(point, prediction) {
     ctx.lineWidth = 2;
     ctx.stroke();
   }
+
+  if (lastRoiCenterCanvas && toggleRoi.checked && !lastInRoi) {
+    ctx.setLineDash([4, 6]);
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.lineTo(lastRoiCenterCanvas.x, lastRoiCenterCanvas.y);
+    ctx.strokeStyle = "rgba(255, 59, 47, 0.7)";
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
 }
 
 function isGazeInRoi(point) {
@@ -227,14 +417,20 @@ function updateMetrics(data) {
   statePill.textContent = `State: ${data.state}`;
   sourcePill.textContent = `Source: ${sourceSelect.value}`;
 
-  const emoji = data.state === "at_risk" ? "⚠️" : data.state === "drifting_attention" ? "🧭" : data.state === "low_roi_engagement" ? "👀" : "✅";
-  statusMain.textContent = `State: ${data.state} ${emoji}`;
+  const statusMap = {
+    at_risk: "🔴 Critical",
+    drifting_attention: "🟡 Attention",
+    low_roi_engagement: "🟡 Attention",
+    normal: "🟢 Normal",
+  };
+  statusMain.textContent = statusMap[data.state] || `State: ${data.state}`;
 
   const inRoi = isGazeInRoi(data.latest_gaze);
+  lastInRoi = inRoi;
   if (inRoi) {
-    statusAttention.innerHTML = `<span class="indicator-good">Looking at important region</span>`;
+    statusAttention.innerHTML = `<span class="indicator-good">✔ Good focus — continue</span>`;
   } else {
-    statusAttention.innerHTML = `<span class="indicator-bad">Missing important region</span>`;
+    statusAttention.innerHTML = `<span class="indicator-bad">⚠ Shift attention → red region</span>`;
   }
   const coverageLabel = data.metrics.roi_coverage_pct < 25 ? "Low" : data.metrics.roi_coverage_pct < 60 ? "Medium" : "High";
   statusCoverage.textContent = `ROI coverage: ${coverageLabel}`;
@@ -267,8 +463,11 @@ function updateMetrics(data) {
   } else {
     statusPred.textContent = "Predicted next look: --";
   }
-  const roiVisible = currentRoi.length > 0 && toggleRoi.checked;
+  const roiVisible = (currentRoi.length > 0 || roiFallbackActive) && (toggleRoi.checked || toggleRoiDebug.checked);
   statusRoi.textContent = `Critical region: ${roiVisible ? "visible" : "hidden"}`;
+
+  updateRiskBar(data.risk ? data.risk.risk_level : "low");
+  updateMetricVisuals(data.metrics);
 }
 
 function updateAdaptation(adapt) {
@@ -335,6 +534,12 @@ async function pollState() {
   latestGaze = data.latest_gaze;
   updateMetrics(data);
   drawGaze(data.latest_gaze, latestPrediction);
+  if (!imageDims.width || !imageDims.height) {
+    if (sliceImage.naturalWidth && sliceImage.naturalHeight) {
+      imageDims = { width: sliceImage.naturalWidth, height: sliceImage.naturalHeight };
+      resizeCanvas();
+    }
+  }
   const adaptResponse = await fetch("/api/adaptation");
   const adapt = await adaptResponse.json();
   updateAdaptation(adapt);
@@ -388,13 +593,19 @@ async function updatePredictionTransparency(stateData) {
   predConfidence.textContent = info.confidence !== null && info.confidence !== undefined
     ? `Confidence: ${info.confidence.toFixed(2)}`
     : "Confidence: not available";
+  if (info.confidence !== null && info.confidence !== undefined) {
+    const pct = Math.max(0, Math.min(1, info.confidence)) * 100;
+    predConfidenceBar.style.width = `${pct}%`;
+  } else {
+    predConfidenceBar.style.width = "0%";
+  }
   predAccuracy.textContent = `Accuracy: ${info.accuracy_note}`;
 
   if (toggleDebug.checked && info.eval_stats) {
     if (info.eval_stats.count >= 10) {
       metrics.predMean.textContent = `Prediction error mean: ${info.eval_stats.mean_error_px.toFixed(1)} px`;
       metrics.predMedian.textContent = `Prediction error median: ${info.eval_stats.median_error_px.toFixed(1)} px`;
-      metrics.predWithin.textContent = `Prediction within 25/50 px: ${info.eval_stats.within_25_px_pct.toFixed(1)}% / ${info.eval_stats.within_50_px_pct.toFixed(1)}%`;
+      metrics.predWithin.textContent = `Within 50px: ${info.eval_stats.within_50_px_pct.toFixed(1)}%`;
     } else {
       metrics.predMean.textContent = "Prediction error mean: Not enough samples yet";
       metrics.predMedian.textContent = "Prediction error median: Not enough samples yet";
@@ -403,8 +614,68 @@ async function updatePredictionTransparency(stateData) {
   } else if (toggleDebug.checked) {
     metrics.predMean.textContent = "Prediction error mean: Not enough samples yet";
     metrics.predMedian.textContent = "Prediction error median: Not enough samples yet";
-    metrics.predWithin.textContent = "Prediction within 25/50 px: Not enough samples yet";
+    metrics.predWithin.textContent = "Within 50px: Not enough samples yet";
   }
+  updateModelCard(info);
+}
+
+function updateModelCard(info) {
+  const active = info.active_predictor || "--";
+  const efficiency = estimateEfficiency(active);
+  modelBadge.textContent = active.toUpperCase();
+  modelName.textContent = `Model: ${active}`;
+  modelEfficiency.textContent = `Efficiency: ${efficiency}`;
+  modelDescription.textContent = `Description: ${modelDescriptionFor(active)}`;
+  const score = predictorResults && predictorResults[active] ? predictorResults[active] : null;
+  if (score && score.status === "evaluated") {
+    modelScore.textContent = `Score (mean error): ${score.mean_error.toFixed(1)} px`;
+    modelWithin.textContent = `Within 50px: ${score.within_50.toFixed(1)}%`;
+  } else {
+    modelScore.textContent = "Score (mean error): --";
+    modelWithin.textContent = "Within 50px: --";
+  }
+}
+
+function updateDatasetCard() {
+  if (!datasetInfo) {
+    datasetBadge.textContent = "MISSING";
+    datasetSummary.textContent = "Summary: dataset summary not found";
+    datasetFeatures.textContent = "Features: --";
+    datasetTarget.textContent = "Target: --";
+    datasetSamples.textContent = "Samples: --";
+    return;
+  }
+  datasetBadge.textContent = "ACTIVE";
+  datasetSummary.textContent = `Summary: seq ${datasetInfo.sequence_len}, horizon ${datasetInfo.horizon || 1}`;
+  datasetFeatures.textContent = `Features: ${datasetInfo.feature_names ? datasetInfo.feature_names.join(", ") : "--"}`;
+  datasetTarget.textContent = `Target: ${datasetInfo.target || "--"}`;
+  datasetSamples.textContent = `Samples: ${datasetInfo.num_train_samples}/${datasetInfo.num_val_samples}/${datasetInfo.num_test_samples}`;
+}
+
+function estimateEfficiency(model) {
+  const map = {
+    xgboost: "fast (CPU)",
+    gru: "medium",
+    transformer: "slower",
+    lstm: "medium",
+    temporal_cnn: "fast",
+    heuristic: "instant",
+    constant_velocity: "instant",
+  };
+  return map[model] || "unknown";
+}
+
+function modelDescriptionFor(model) {
+  const map = {
+    xgboost: "Tree-based regressor optimized for latency-sensitive predictions.",
+    gru: "Sequence model capturing temporal gaze dynamics.",
+    transformer: "Attention-based model for complex gaze patterns.",
+    lstm: "Sequence model with long-range temporal memory.",
+    temporal_cnn: "Temporal convolution for short-range motion cues.",
+    heuristic: "Velocity baseline when models are unavailable.",
+    constant_velocity: "Constant velocity baseline for next-step prediction.",
+  };
+  return map[model] || "Model description unavailable.";
 }
 
 function updateSuggestionText(riskLevel, modeLabel) {
@@ -443,8 +714,10 @@ function formatActions(actions) {
 }
 
 function resolveAdaptationStatus(actions) {
-  if (!actions || actions.length === 0) return "Idle — no intervention needed";
-  return "Intervention triggered";
+  if (!actions || actions.length === 0) return "✔ Monitoring";
+  if (actions.includes("highlight_roi")) return "⚠ Focus here";
+  if (actions.includes("strong_highlight_roi") || actions.includes("dim_non_roi")) return "🔴 Intervention triggered";
+  return "⚠ Suggesting focus";
 }
 
 function resolveAdaptationDetail(actions) {
@@ -455,6 +728,25 @@ function resolveAdaptationDetail(actions) {
     return "Monitoring — risk below threshold";
   }
   return `Actions: ${formatActions(actions)}`;
+}
+
+function updateRiskBar(level) {
+  const map = { low: 20, medium: 55, high: 85 };
+  const pct = map[level] || 10;
+  riskFill.style.width = `${pct}%`;
+}
+
+function updateMetricVisuals(metricsData) {
+  if (!metricsData) return;
+  const coverage = metricsData.roi_coverage_pct ?? 0;
+  const scan = metricsData.scan_coverage_pct ?? 0;
+  const error = metricsData.dispersion ?? 0;
+  const coverageDeg = Math.max(0, Math.min(coverage, 100)) * 3.6;
+  const coverageColor = coverage < 30 ? "#ff3b2f" : coverage < 70 ? "#f4b000" : "#2f9e44";
+  metricCoverageGauge.style.background = `conic-gradient(${coverageColor} 0deg ${coverageDeg}deg, rgba(39, 76, 89, 0.1) ${coverageDeg}deg 360deg)`;
+  metricScanBar.style.width = `${Math.max(0, Math.min(scan, 100))}%`;
+  const errorPct = Math.min(error * 100, 100);
+  metricErrorBar.style.width = `${errorPct}%`;
 }
 
 function isRiskAtLeast(level, threshold) {
@@ -496,12 +788,22 @@ async function sendMouseGaze(event) {
 }
 
 sliceImage.addEventListener("load", () => {
+  if (sliceImage.naturalWidth && sliceImage.naturalHeight) {
+    imageDims = { width: sliceImage.naturalWidth, height: sliceImage.naturalHeight };
+  }
+  resizeCanvas();
+  drawRoi();
+});
+
+sliceImage.addEventListener("error", () => {
+  resizeCanvas();
   drawRoi();
 });
 
 document.getElementById("image-stage").addEventListener("mousemove", sendMouseGaze);
 
 toggleRoi.addEventListener("change", drawRoi);
+toggleRoiDebug.addEventListener("change", drawRoi);
 toggleGaze.addEventListener("change", () => drawGaze(null));
 toggleAdapt.addEventListener("change", () => pollState());
 togglePredict.addEventListener("change", updateMode);
@@ -531,6 +833,9 @@ resetButton.addEventListener("click", async () => {
 
 async function init() {
   await fetchCases();
+  await fetchPredictorResults();
+  await fetchDatasetSummary();
+  updateDatasetCard();
   await loadSlice();
   const policyResponse = await fetch("/api/policy/info");
   policyInfo = await policyResponse.json();
@@ -544,6 +849,13 @@ async function init() {
   }
   debugPanel.style.display = "none";
   setInterval(pollState, 500);
+  requestAnimationFrame(renderLoop);
 }
 
 init();
+
+function renderLoop() {
+  drawRoi();
+  drawGaze(latestGaze, latestPrediction);
+  requestAnimationFrame(renderLoop);
+}

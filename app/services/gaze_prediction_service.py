@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import json
 import math
+from pathlib import Path
 from typing import Dict, List, Optional
 
 from app.models.schemas import GazePoint, PredictionEvalStats, PredictionInfoResponse, PredictionPoint, PredictionResponse
+from app.services.feature_builder import FeatureBuilder
 from app.services.predictors.predictor_manager import PredictorManager
 from app.utils.geometry_utils import clamp_point
 
@@ -11,8 +14,35 @@ from app.utils.geometry_utils import clamp_point
 class GazePredictionService:
     def __init__(self, config: Dict):
         self.config = config
-        self.min_points = int(config.get("prediction", {}).get("min_points", 6))
-        self.max_points = int(config.get("prediction", {}).get("max_points", 12))
+        pred_cfg = config.get("prediction", {})
+        self.min_points = int(pred_cfg.get("min_points", 6))
+        self.max_points = int(pred_cfg.get("max_points", 12))
+        self.sequence_len = int(pred_cfg.get("sequence_len", 30))
+        self.target_mode = pred_cfg.get("target_mode", "delta")
+        self.dataset_summary = Path(pred_cfg.get("dataset_summary", "data/gaze_prediction_dataset_summary.json"))
+        self.feature_names = pred_cfg.get("feature_names", [])
+        if self.dataset_summary.exists():
+            summary = json.loads(self.dataset_summary.read_text(encoding="utf-8"))
+            self.feature_names = summary.get("feature_names", self.feature_names)
+            self.sequence_len = int(summary.get("sequence_len", self.sequence_len))
+            self.target_mode = summary.get("target", self.target_mode)
+        if not self.feature_names:
+            self.feature_names = [
+                "x",
+                "y",
+                "dx",
+                "dy",
+                "speed",
+                "accel",
+                "dir_sin",
+                "dir_cos",
+                "dist_roi",
+                "inside_roi",
+                "dist_roi_edge",
+            ]
+        self.feature_builder = FeatureBuilder(self.feature_names)
+        if self.max_points < self.sequence_len:
+            self.max_points = self.sequence_len
         self.predictor_mode = config.get("prediction", {}).get("predictor_mode", "auto")
         self.log_predictor = bool(config.get("prediction", {}).get("log_predictor", True))
         self.manager = PredictorManager(config)
@@ -23,22 +53,30 @@ class GazePredictionService:
         self.error_history: List[float] = []
         self.max_errors = 200
         self.model_status = "heuristic"
-        from pathlib import Path
-
         self.eval_log_path = Path("data/prediction_eval.jsonl")
         self.eval_log_path.parent.mkdir(parents=True, exist_ok=True)
         self.model_status = "heuristic"
 
-    def predict(self, points: List[GazePoint], image_width: int, image_height: int) -> PredictionResponse:
+    def predict(self, points: List[GazePoint], rois, image_width: int, image_height: int) -> PredictionResponse:
         method = "heuristic_velocity"
         timestamp = points[-1].timestamp if points else 0.0
         if len(points) < self.min_points:
             return PredictionResponse(predicted=None, method=method, timestamp=timestamp, based_on=len(points))
 
         sequence = points[-self.max_points :]
-        prediction = self.manager.predict(sequence)
+        feature_seq = self.feature_builder.build(
+            sequence,
+            rois,
+            image_width,
+            image_height,
+            self.sequence_len,
+            self.target_mode,
+        )
+        prediction = self.manager.predict(feature_seq)
         if prediction:
-            pred_x, pred_y, confidence = prediction
+            pred_x_norm, pred_y_norm, confidence = prediction
+            pred_x = pred_x_norm * image_width
+            pred_y = pred_y_norm * image_height
             pred_x, pred_y = clamp_point(pred_x, pred_y, image_width, image_height)
             method = self.manager.active_name
             self._store_prediction(pred_x, pred_y, timestamp, confidence)
@@ -123,13 +161,16 @@ class GazePredictionService:
 
     def get_info(self) -> PredictionInfoResponse:
         active = self.manager.active_name
-        explanation = (
-            "Heuristic predictor uses recent gaze direction and velocity."
-            if active == "heuristic"
-            else "LSTM predictor learns gaze sequences (weights required)."
-            if active == "lstm"
-            else "Transformer predictor learns attention-based sequences (weights required)."
-        )
+        explanation_map = {
+            "heuristic": "Velocity-based baseline using recent gaze deltas.",
+            "constant_velocity": "Constant velocity baseline for next-step gaze.",
+            "xgboost": "Tree-based model using gaze trajectory features.",
+            "gru": "Sequence model capturing temporal gaze dynamics.",
+            "lstm": "Sequence model with long-range temporal memory.",
+            "transformer": "Attention-based model for complex gaze patterns.",
+            "temporal_cnn": "Temporal convolution over short-range gaze motion.",
+        }
+        explanation = explanation_map.get(active, "Gaze prediction model.")
         accuracy_note = (
             "Prediction accuracy not yet evaluated in this prototype"
             if len(self.error_history) < 10

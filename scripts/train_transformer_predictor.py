@@ -12,7 +12,7 @@ except Exception as exc:
 
 
 class TransformerGazeModel(nn.Module):
-    def __init__(self, input_size: int = 6, d_model: int = 32, nhead: int = 2, num_layers: int = 1):
+    def __init__(self, input_size: int = 5, d_model: int = 32, nhead: int = 2, num_layers: int = 1):
         super().__init__()
         self.input = nn.Linear(input_size, d_model)
         encoder_layer = nn.TransformerEncoderLayer(d_model=d_model, nhead=nhead, batch_first=True)
@@ -67,7 +67,7 @@ def main():
     )
 
     history = {"train_loss": [], "val_loss": []}
-    epochs = 20
+    epochs = 40
     patience = 3
     best_val = None
     patience_left = patience

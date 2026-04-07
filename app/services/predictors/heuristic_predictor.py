@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import math
-from typing import List, Optional, Tuple
+from typing import Optional, Tuple
 
-from app.models.schemas import GazePoint
+from app.services.feature_builder import FeatureSequence
 from app.services.predictors.base_predictor import BasePredictor
 
 
@@ -13,11 +13,12 @@ class HeuristicPredictor(BasePredictor):
     def available(self) -> bool:
         return True
 
-    def predict(self, sequence: List[GazePoint]) -> Optional[Tuple[float, float, float]]:
-        if len(sequence) < 3:
+    def predict(self, sequence: FeatureSequence) -> Optional[Tuple[float, float, float]]:
+        points = sequence.points
+        if len(points) < 3:
             return None
         velocities = []
-        for prev, curr in zip(sequence, sequence[1:]):
+        for prev, curr in zip(points, points[1:]):
             dt = max(curr.timestamp - prev.timestamp, 1.0)
             velocities.append(((curr.x - prev.x) / dt, (curr.y - prev.y) / dt))
         if not velocities:
@@ -27,10 +28,10 @@ class HeuristicPredictor(BasePredictor):
         mean_speed = math.sqrt(avg_vx**2 + avg_vy**2)
         speed_var = sum(((math.sqrt(vx**2 + vy**2) - mean_speed) ** 2) for vx, vy in velocities) / len(velocities)
         confidence = 1.0 / (1.0 + math.sqrt(speed_var))
-        dt_pred = max(sequence[-1].timestamp - sequence[-2].timestamp, 1.0)
-        pred_x = sequence[-1].x + avg_vx * dt_pred
-        pred_y = sequence[-1].y + avg_vy * dt_pred
-        return pred_x, pred_y, confidence
+        dt_pred = max(points[-1].timestamp - points[-2].timestamp, 1.0)
+        pred_x = points[-1].x + avg_vx * dt_pred
+        pred_y = points[-1].y + avg_vy * dt_pred
+        return pred_x / sequence.width, pred_y / sequence.height, confidence
 
     def status(self) -> str:
         return "heuristic baseline active"

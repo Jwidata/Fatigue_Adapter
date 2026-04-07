@@ -95,6 +95,16 @@ class GazeIngestRequest(BaseModel):
     point: GazePoint
 
 
+class GazeStreamRequest(BaseModel):
+    timestamp: float
+    x: float
+    y: float
+    case_id: Optional[str] = None
+    slice_id: Optional[int] = None
+    source: Optional[str] = None
+    mode: Optional[str] = None
+
+
 class ModeRequest(BaseModel):
     gaze_mode: str
     gaze_source: str
@@ -130,6 +140,15 @@ class PredictionResponse(BaseModel):
     method: str
     timestamp: float
     based_on: int
+
+
+class RoiStatusResponse(BaseModel):
+    inside_roi: bool
+    distance_px: Optional[float]
+    roi_center_x: Optional[float] = None
+    roi_center_y: Optional[float] = None
+    roi_bbox: Optional[RoiBBox] = None
+    reason: Optional[str] = None
 
 
 class PredictionEvalStats(BaseModel):
@@ -175,6 +194,17 @@ class StateResponse(BaseModel):
     prediction: Optional[PredictionResponse] = None
     risk: Optional[RiskResponse] = None
     attention_status: Optional[str] = None
+
+
+class RealtimePredictionResponse(BaseModel):
+    gaze: Optional[GazePoint]
+    prediction: Optional[PredictionPoint]
+    model_used: str
+    roi_status: Optional[RoiStatusResponse]
+    adaptation: Optional[AdaptationResponse]
+    risk: Optional[RiskResponse]
+    buffer_len: int
+    sequence_len: int
 
 
 class AdaptationCommand(BaseModel):

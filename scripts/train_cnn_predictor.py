@@ -12,7 +12,7 @@ except Exception as exc:
 
 
 class TemporalCNN(nn.Module):
-    def __init__(self, input_size: int = 6):
+    def __init__(self, input_size: int = 5):
         super().__init__()
         self.conv1 = nn.Conv1d(input_size, 16, kernel_size=3, padding=1)
         self.relu = nn.ReLU()
@@ -68,7 +68,7 @@ def main():
     )
 
     history = {"train_loss": [], "val_loss": []}
-    epochs = 20
+    epochs = 40
     patience = 3
     best_val = None
     patience_left = patience

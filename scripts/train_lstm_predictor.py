@@ -12,9 +12,9 @@ except Exception as exc:
 
 
 class LSTMGazeModel(nn.Module):
-    def __init__(self, input_size: int = 6, hidden_size: int = 32, num_layers: int = 1):
+    def __init__(self, input_size: int = 5, hidden_size: int = 64, num_layers: int = 2, dropout: float = 0.1):
         super().__init__()
-        self.lstm = nn.LSTM(input_size, hidden_size, num_layers=num_layers, batch_first=True)
+        self.lstm = nn.LSTM(input_size, hidden_size, num_layers=num_layers, batch_first=True, dropout=dropout if num_layers > 1 else 0.0)
         self.fc = nn.Linear(hidden_size, 2)
 
     def forward(self, x):
@@ -44,7 +44,7 @@ def main():
 
     torch.manual_seed(7)
     input_size = X_train.shape[2]
-    model = LSTMGazeModel(input_size=input_size).to(device)
+    model = LSTMGazeModel(input_size=input_size, hidden_size=64, num_layers=2, dropout=0.1).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
     loss_fn = nn.MSELoss()
 
@@ -64,7 +64,7 @@ def main():
     )
 
     history = {"train_loss": [], "val_loss": []}
-    epochs = 20
+    epochs = 40
     patience = 3
     best_val = None
     patience_left = patience

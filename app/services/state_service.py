@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+from pathlib import Path
 from typing import Dict, Optional
 
 from app.models.schemas import MetricsResponse, RiskResponse, StateResponse
@@ -55,6 +57,8 @@ class StateService:
         self.state_engine = PredictiveStateEngine(config)
         self.latest_state: Optional[StateResponse] = None
         self.predictive_enabled = bool(config.get("ui", {}).get("predictive_enabled", True))
+        self.realtime_log_path = Path("data/realtime_events.jsonl")
+        self.realtime_log_path.parent.mkdir(parents=True, exist_ok=True)
 
         self.case_id, self.series_id = self.catalog.get_default_case()
         self.slice_id = 0
@@ -74,10 +78,11 @@ class StateService:
         if slice_id is not None:
             self.slice_id = slice_id
 
-    def compute_state(self) -> StateResponse:
+    def compute_state(self, sample_if_needed: bool = True) -> StateResponse:
         meta = self.catalog.get_slice_meta(self.case_id, self.slice_id)
         self.gaze.set_context(self.case_id, self.slice_id)
-        self.gaze.sample_if_needed(meta.width, meta.height)
+        if sample_if_needed:
+            self.gaze.sample_if_needed(meta.width, meta.height)
         points = self.gaze.get_window_points()
         rois = self.roi.get_rois(self.case_id, self.slice_id).rois
         metrics = self.attention.compute_metrics(points, rois, meta.width, meta.height)
@@ -86,7 +91,7 @@ class StateService:
         prediction = None
         risk = RiskResponse(risk_level="low", reason="predictive_disabled", predicted_in_roi=False, roi_priority=0.0)
         if self.predictive_enabled:
-            prediction = self.prediction.predict(points, meta.width, meta.height)
+            prediction = self.prediction.predict(points, rois, meta.width, meta.height)
             risk = self.risk.assess(prediction, rois, meta.width, meta.height)
 
         state = self.state_engine.classify(metrics, risk)
@@ -110,4 +115,22 @@ class StateService:
             attention_status="predicted_in_roi" if risk.predicted_in_roi else "predicted_miss",
         )
         self.latest_state = response
+        self._log_realtime(latest_gaze, prediction, risk, adaptation)
         return response
+
+    def _log_realtime(self, gaze, prediction, risk, adaptation):
+        if gaze is None:
+            return
+        payload = {
+            "timestamp": gaze.timestamp,
+            "gaze_x": gaze.x,
+            "gaze_y": gaze.y,
+            "prediction_x": prediction.predicted.x if prediction and prediction.predicted else None,
+            "prediction_y": prediction.predicted.y if prediction and prediction.predicted else None,
+            "model": prediction.method if prediction else None,
+            "roi_hit": risk.predicted_in_roi if risk else None,
+            "risk_level": risk.risk_level if risk else None,
+            "adaptation_actions": adaptation.command.actions if adaptation else None,
+        }
+        with self.realtime_log_path.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(payload) + "\n")
