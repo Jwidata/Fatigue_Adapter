@@ -68,6 +68,13 @@ Pan/zoom can be added later by expanding the mapping logic on the frontend and t
 
 The rest of the pipeline stays unchanged because all gaze points share a common schema.
 
+### Real-time Tobii streaming
+
+The prototype now accepts Tobii display coordinates directly via `POST /api/gaze_display`.
+The browser sends viewport geometry to `POST /api/viewport`, letting the backend map
+display gaze to image pixels. Use `scripts/tobii_stream.py` to stream Tobii gaze into
+the running app (requires `tobii_research`).
+
 ## Swapping in real medical pipelines
 
 - Replace `CatalogService` and `ImageService` to pull from PACS, streaming, or other sources
@@ -183,8 +190,12 @@ To keep consistency between training and inference, the runtime loads feature na
 - `GET /api/cases`
 - `GET /api/cases/{case_id}/slices/{slice_id}`
 - `GET /api/roi/{case_id}/{slice_id}`
+- `POST /api/roi/override`
+- `DELETE /api/roi/override/{case_id}/{slice_id}`
 - `POST /api/gaze`
 - `POST /api/gaze_stream`
+- `POST /api/gaze_display`
+- `POST /api/viewport`
 - `GET /api/state`
 - `GET /api/prediction`
 - `GET /api/predict`
@@ -200,6 +211,7 @@ To keep consistency between training and inference, the runtime loads feature na
 - `GET /api/dataset/summary`
 - `POST /api/mode`
 - `POST /api/reset`
+- `POST /api/upload`
 
 ## Scripts
 

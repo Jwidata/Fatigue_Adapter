@@ -3,6 +3,7 @@ const sliceInput = document.getElementById("slice-input");
 const loadSliceBtn = document.getElementById("load-slice");
 const sliceImage = document.getElementById("slice-image");
 const roiCanvas = document.getElementById("roi-canvas");
+const roiEditCanvas = document.getElementById("roi-edit-canvas");
 const gazeCanvas = document.getElementById("gaze-canvas");
 const toggleRoi = document.getElementById("toggle-roi");
 const toggleRoiDebug = document.getElementById("toggle-roi-debug");
@@ -10,6 +11,10 @@ const toggleGaze = document.getElementById("toggle-gaze");
 const togglePredict = document.getElementById("toggle-predict");
 const toggleAdapt = document.getElementById("toggle-adapt");
 const toggleDebug = document.getElementById("toggle-debug");
+const toggleRoiEdit = document.getElementById("toggle-roi-edit");
+const clearRoiBtn = document.getElementById("clear-roi");
+const undoRoiBtn = document.getElementById("undo-roi");
+const roiHint = document.getElementById("roi-hint");
 const sourceSelect = document.getElementById("source-select");
 const modeSelect = document.getElementById("mode-select");
 const policySelect = document.getElementById("policy-select");
@@ -34,6 +39,8 @@ const statusGaze = document.getElementById("status-gaze");
 const statusPred = document.getElementById("status-pred");
 const statusRoi = document.getElementById("status-roi");
 const statusThreshold = document.getElementById("status-threshold");
+const statusAlert = document.getElementById("status-alert");
+const statusTobii = document.getElementById("status-tobii");
 const statusMode = document.getElementById("status-mode");
 const statusData = document.getElementById("status-data");
 const riskFill = document.getElementById("risk-fill");
@@ -61,6 +68,13 @@ const datasetSamples = document.getElementById("dataset-samples");
 const imageStage = document.getElementById("image-stage");
 const imageOverlay = document.getElementById("image-overlay");
 const debugPanel = document.getElementById("debug-panel");
+const uploadFile = document.getElementById("upload-file");
+const uploadCase = document.getElementById("upload-case");
+const uploadSeries = document.getElementById("upload-series");
+const uploadButton = document.getElementById("upload-button");
+const uploadStatus = document.getElementById("upload-status");
+const mockTobiiButton = document.getElementById("mock-tobii");
+const mockStatus = document.getElementById("mock-status");
 
 const metrics = {
   dwell: document.getElementById("metric-dwell"),
@@ -99,6 +113,12 @@ let lastRoiCenterCanvas = null;
 let lastInRoi = false;
 let predictorResults = null;
 let datasetInfo = null;
+let roiDragStart = null;
+let roiDragCurrent = null;
+let lastViewportSent = 0;
+let currentRoiSource = "";
+const roiUndoStack = [];
+let mockTobiiTimer = null;
 
 async function fetchCases() {
   const response = await fetch("/api/cases");
@@ -154,6 +174,7 @@ async function fetchRoi() {
   const response = await fetch(`/api/roi/${currentCase}/${currentSlice}`);
   const data = await response.json();
   currentRoi = data.rois || [];
+  currentRoiSource = data.source || "";
   imageDims = { width: data.image_width, height: data.image_height };
   if (imageDims.width && imageDims.height) {
     resizeCanvas();
@@ -174,6 +195,8 @@ async function fetchRoi() {
     })),
   });
   drawRoi();
+  await sendViewport();
+  updateRoiUndoState();
 }
 
 function resizeCanvas() {
@@ -190,8 +213,76 @@ function resizeCanvas() {
   }
   roiCanvas.width = width;
   roiCanvas.height = height;
+  roiEditCanvas.width = width;
+  roiEditCanvas.height = height;
   gazeCanvas.width = width;
   gazeCanvas.height = height;
+}
+
+async function sendViewport() {
+  if (!currentCase || !imageDims.width || !imageDims.height) return;
+  const rect = sliceImage.getBoundingClientRect();
+  if (!rect.width || !rect.height) return;
+  const now = Date.now();
+  if (now - lastViewportSent < 250) return;
+  lastViewportSent = now;
+  await fetch("/api/viewport", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      case_id: currentCase,
+      slice_id: currentSlice,
+      image_left: rect.left,
+      image_top: rect.top,
+      image_width: rect.width,
+      image_height: rect.height,
+      image_pixel_width: imageDims.width,
+      image_pixel_height: imageDims.height,
+      screen_width: window.innerWidth,
+      screen_height: window.innerHeight,
+      timestamp: now,
+    }),
+  });
+}
+
+async function sendMockTobiiSample(xNorm, yNorm) {
+  if (!currentCase) return;
+  await fetch("/api/gaze_display", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      timestamp: Date.now(),
+      x: xNorm,
+      y: yNorm,
+      screen_width: window.innerWidth,
+      screen_height: window.innerHeight,
+      case_id: currentCase,
+      slice_id: currentSlice,
+      source: "tobii",
+      mode: modeSelect.value,
+      normalized: true,
+    }),
+  });
+}
+
+function toggleMockTobii() {
+  if (mockTobiiTimer) {
+    clearInterval(mockTobiiTimer);
+    mockTobiiTimer = null;
+    mockTobiiButton.textContent = "Start mock stream";
+    mockStatus.textContent = "Status: idle";
+    return;
+  }
+  mockTobiiButton.textContent = "Stop mock stream";
+  mockStatus.textContent = "Status: streaming";
+  const start = Date.now();
+  mockTobiiTimer = setInterval(() => {
+    const t = (Date.now() - start) / 1000;
+    const xNorm = 0.5 + 0.12 * Math.sin(t * 1.6);
+    const yNorm = 0.5 + 0.12 * Math.cos(t * 1.2);
+    sendViewport();
+    sendMockTobiiSample(Math.max(0, Math.min(1, xNorm)), Math.max(0, Math.min(1, yNorm)));
+  }, 120);
 }
 
 function getScale() {
@@ -328,6 +419,77 @@ function drawRoi() {
   }
 }
 
+function drawRoiEdit() {
+  if (!roiEditCanvas.width || !roiEditCanvas.height) return;
+  const ctx = roiEditCanvas.getContext("2d");
+  ctx.clearRect(0, 0, roiEditCanvas.width, roiEditCanvas.height);
+  if (!roiDragStart || !roiDragCurrent) return;
+  const x = Math.min(roiDragStart.x, roiDragCurrent.x);
+  const y = Math.min(roiDragStart.y, roiDragCurrent.y);
+  const w = Math.abs(roiDragStart.x - roiDragCurrent.x);
+  const h = Math.abs(roiDragStart.y - roiDragCurrent.y);
+  ctx.strokeStyle = "rgba(255, 59, 47, 0.9)";
+  ctx.lineWidth = 2;
+  ctx.setLineDash([6, 4]);
+  ctx.strokeRect(x, y, w, h);
+  ctx.setLineDash([]);
+  ctx.fillStyle = "rgba(255, 59, 47, 0.2)";
+  ctx.fillRect(x, y, w, h);
+}
+
+function mapCanvasToImage(point) {
+  if (!imageDims.width || !imageDims.height) return null;
+  const { scaleX, scaleY } = getScale();
+  if (!scaleX || !scaleY) return null;
+  return {
+    x: point.x / scaleX,
+    y: point.y / scaleY,
+  };
+}
+
+function updateRoiUndoState() {
+  undoRoiBtn.disabled = roiUndoStack.length === 0;
+}
+
+async function applyRoiOverride(bbox, label = "User ROI") {
+  if (!currentCase) return;
+  await fetch("/api/roi/override", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      case_id: currentCase,
+      slice_id: currentSlice,
+      bbox,
+      label,
+      priority: 0.85,
+    }),
+  });
+  await fetchRoi();
+}
+
+async function setRoiOverrideFromCanvas() {
+  if (!roiDragStart || !roiDragCurrent || !currentCase) return;
+  const start = mapCanvasToImage(roiDragStart);
+  const end = mapCanvasToImage(roiDragCurrent);
+  if (!start || !end) return;
+  const x = Math.min(start.x, end.x);
+  const y = Math.min(start.y, end.y);
+  const w = Math.abs(start.x - end.x);
+  const h = Math.abs(start.y - end.y);
+  if (w < 5 || h < 5) return;
+  const bbox = {
+    x: x / imageDims.width,
+    y: y / imageDims.height,
+    w: w / imageDims.width,
+    h: h / imageDims.height,
+  };
+  if (currentRoiSource === "user" && currentRoi.length && currentRoi[0].bbox) {
+    roiUndoStack.push(currentRoi[0].bbox);
+  }
+  await applyRoiOverride(bbox);
+  updateRoiUndoState();
+}
+
 function drawGaze(point, prediction) {
   if (!imageDims.width || !imageDims.height) return;
   resizeCanvas();
@@ -427,11 +589,20 @@ function updateMetrics(data) {
 
   const inRoi = isGazeInRoi(data.latest_gaze);
   lastInRoi = inRoi;
-  if (inRoi) {
+  if (!data.latest_gaze) {
+    statusAttention.textContent = "--";
+    statusAlert.textContent = "Alert: --";
+    statusAlert.classList.remove("alert");
+  } else if (inRoi) {
     statusAttention.innerHTML = `<span class="indicator-good">✔ Good focus — continue</span>`;
+    statusAlert.textContent = "Alert: none";
+    statusAlert.classList.remove("alert");
   } else {
     statusAttention.innerHTML = `<span class="indicator-bad">⚠ Shift attention → red region</span>`;
+    statusAlert.textContent = "Alert: gaze outside ROI";
+    statusAlert.classList.add("alert");
   }
+  updateTobiiStatus(data.latest_gaze);
   const coverageLabel = data.metrics.roi_coverage_pct < 25 ? "Low" : data.metrics.roi_coverage_pct < 60 ? "Medium" : "High";
   statusCoverage.textContent = `ROI coverage: ${coverageLabel}`;
   if (data.latest_gaze) {
@@ -749,6 +920,27 @@ function updateMetricVisuals(metricsData) {
   metricErrorBar.style.width = `${errorPct}%`;
 }
 
+function updateTobiiStatus(gazePoint) {
+  if (sourceSelect.value !== "tobii") {
+    statusTobii.textContent = "Tobii: inactive";
+    statusTobii.classList.remove("alert");
+    return;
+  }
+  if (!gazePoint || gazePoint.source !== "tobii") {
+    statusTobii.textContent = "Tobii: waiting";
+    statusTobii.classList.add("alert");
+    return;
+  }
+  const ageMs = Date.now() - gazePoint.timestamp;
+  if (ageMs > 1500) {
+    statusTobii.textContent = "Tobii: stale";
+    statusTobii.classList.add("alert");
+    return;
+  }
+  statusTobii.textContent = "Tobii: live";
+  statusTobii.classList.remove("alert");
+}
+
 function isRiskAtLeast(level, threshold) {
   const order = { low: 0, medium: 1, high: 2 };
   return (order[level] ?? 0) >= (order[threshold] ?? 1);
@@ -766,8 +958,42 @@ function mapMouseToImage(event) {
   return { x, y };
 }
 
+function mapPointerToCanvas(event) {
+  const rect = imageStage.getBoundingClientRect();
+  if (rect.width === 0 || rect.height === 0) {
+    return { x: 0, y: 0 };
+  }
+  const x = event.clientX - rect.left;
+  const y = event.clientY - rect.top;
+  return {
+    x: Math.max(0, Math.min(roiEditCanvas.width, x)),
+    y: Math.max(0, Math.min(roiEditCanvas.height, y)),
+  };
+}
+
+function startRoiDrag(event) {
+  if (!toggleRoiEdit.checked) return;
+  roiDragStart = mapPointerToCanvas(event);
+  roiDragCurrent = { ...roiDragStart };
+  drawRoiEdit();
+}
+
+function moveRoiDrag(event) {
+  if (!toggleRoiEdit.checked || !roiDragStart) return;
+  roiDragCurrent = mapPointerToCanvas(event);
+  drawRoiEdit();
+}
+
+async function endRoiDrag() {
+  if (!toggleRoiEdit.checked || !roiDragStart) return;
+  await setRoiOverrideFromCanvas();
+  roiDragStart = null;
+  roiDragCurrent = null;
+  drawRoiEdit();
+}
+
 async function sendMouseGaze(event) {
-  if (sourceSelect.value !== "mouse") return;
+  if (sourceSelect.value !== "mouse" || toggleRoiEdit.checked) return;
   const now = Date.now();
   if (now - lastMouseSent < 100) return;
   lastMouseSent = now;
@@ -793,6 +1019,7 @@ sliceImage.addEventListener("load", () => {
   }
   resizeCanvas();
   drawRoi();
+  sendViewport();
 });
 
 sliceImage.addEventListener("error", () => {
@@ -800,12 +1027,34 @@ sliceImage.addEventListener("error", () => {
   drawRoi();
 });
 
+window.addEventListener("resize", () => {
+  resizeCanvas();
+  drawRoi();
+  sendViewport();
+});
+
 document.getElementById("image-stage").addEventListener("mousemove", sendMouseGaze);
+imageStage.addEventListener("mousedown", startRoiDrag);
+imageStage.addEventListener("mousemove", moveRoiDrag);
+imageStage.addEventListener("mouseup", endRoiDrag);
+imageStage.addEventListener("mouseleave", endRoiDrag);
 
 toggleRoi.addEventListener("change", drawRoi);
 toggleRoiDebug.addEventListener("change", drawRoi);
 toggleGaze.addEventListener("change", () => drawGaze(null));
 toggleAdapt.addEventListener("change", () => pollState());
+toggleRoiEdit.addEventListener("change", () => {
+  if (toggleRoiEdit.checked) {
+    imageStage.classList.add("editing");
+    roiHint.textContent = "Drag on image to define region";
+  } else {
+    imageStage.classList.remove("editing");
+    roiDragStart = null;
+    roiDragCurrent = null;
+    drawRoiEdit();
+    roiHint.textContent = "ROI editing disabled";
+  }
+});
 togglePredict.addEventListener("change", updateMode);
 toggleAdapt.addEventListener("change", updateMode);
 policySelect.addEventListener("change", updateMode);
@@ -831,6 +1080,48 @@ resetButton.addEventListener("click", async () => {
   await fetch("/api/reset", { method: "POST" });
 });
 
+clearRoiBtn.addEventListener("click", async () => {
+  if (!currentCase) return;
+  await fetch(`/api/roi/override/${currentCase}/${currentSlice}`, { method: "DELETE" });
+  roiUndoStack.length = 0;
+  await fetchRoi();
+  updateRoiUndoState();
+});
+
+undoRoiBtn.addEventListener("click", async () => {
+  if (roiUndoStack.length === 0) return;
+  const prev = roiUndoStack.pop();
+  if (prev) {
+    await applyRoiOverride(prev, "User ROI (undo)");
+  }
+  updateRoiUndoState();
+});
+
+uploadButton.addEventListener("click", async () => {
+  if (!uploadFile.files || uploadFile.files.length === 0) {
+    uploadStatus.textContent = "Status: select a file";
+    return;
+  }
+  const form = new FormData();
+  form.append("file", uploadFile.files[0]);
+  if (uploadCase.value) form.append("case_id", uploadCase.value);
+  if (uploadSeries.value) form.append("series_id", uploadSeries.value);
+  uploadStatus.textContent = "Status: uploading...";
+  const response = await fetch("/api/upload", { method: "POST", body: form });
+  if (!response.ok) {
+    uploadStatus.textContent = "Status: upload failed";
+    return;
+  }
+  const data = await response.json();
+  uploadStatus.textContent = `Status: uploaded ${data.case_id}`;
+  await fetchCases();
+});
+
+mockTobiiButton.addEventListener("click", () => {
+  sourceSelect.value = "tobii";
+  toggleMockTobii();
+});
+
 async function init() {
   await fetchCases();
   await fetchPredictorResults();
@@ -848,6 +1139,8 @@ async function init() {
     silentLowRisk.checked = policyInfo.silent_low_risk;
   }
   debugPanel.style.display = "none";
+  roiHint.textContent = "ROI editing disabled";
+  updateRoiUndoState();
   setInterval(pollState, 500);
   requestAnimationFrame(renderLoop);
 }
@@ -856,6 +1149,7 @@ init();
 
 function renderLoop() {
   drawRoi();
+  drawRoiEdit();
   drawGaze(latestGaze, latestPrediction);
   requestAnimationFrame(renderLoop);
 }

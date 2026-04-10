@@ -105,6 +105,19 @@ class GazeStreamRequest(BaseModel):
     mode: Optional[str] = None
 
 
+class DisplayGazeRequest(BaseModel):
+    timestamp: float
+    x: float
+    y: float
+    screen_width: int
+    screen_height: int
+    case_id: Optional[str] = None
+    slice_id: Optional[int] = None
+    source: Optional[str] = None
+    mode: Optional[str] = None
+    normalized: Optional[bool] = None
+
+
 class ModeRequest(BaseModel):
     gaze_mode: str
     gaze_source: str
@@ -118,6 +131,28 @@ class ModeRequest(BaseModel):
     cooldown_ms: Optional[int] = None
     message_hold_ms: Optional[int] = None
     silent_low_risk: Optional[bool] = None
+
+
+class RoiOverrideRequest(BaseModel):
+    case_id: str
+    slice_id: int
+    bbox: RoiBBox
+    label: Optional[str] = None
+    priority: Optional[float] = None
+
+
+class ViewportRequest(BaseModel):
+    case_id: str
+    slice_id: int
+    image_left: float
+    image_top: float
+    image_width: float
+    image_height: float
+    image_pixel_width: int
+    image_pixel_height: int
+    screen_width: int
+    screen_height: int
+    timestamp: float
 
 
 class MetricsResponse(BaseModel):

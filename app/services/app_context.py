@@ -12,6 +12,7 @@ from app.services.image_service import ImageService
 from app.services.policy_learning_service import PolicyLearningService
 from app.services.roi_service import RoiService
 from app.services.state_service import StateService
+from app.services.viewport_service import ViewportService
 from app.utils.config_utils import load_config
 
 
@@ -29,6 +30,7 @@ class AppContext:
         self.policy.set_policy_mode(self.config.get("ui", {}).get("policy_mode", "balanced"))
         self.outcome = AdaptationOutcomeService(self.config)
         self.learning = PolicyLearningService(self.config)
+        self.viewport = ViewportService()
         self.state_service = StateService(
             self.catalog,
             self.gaze,

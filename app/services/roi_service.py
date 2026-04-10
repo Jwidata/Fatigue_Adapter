@@ -146,7 +146,9 @@ class RoiService:
         self.catalog = catalog
         self.config = config
         self._manual_path = Path(__file__).resolve().parents[2] / "configs" / "manual_rois.json"
+        self._override_path = Path(__file__).resolve().parents[2] / "data" / "roi_overrides.json"
         self._manual = self._load_manual()
+        self._overrides = self._load_overrides()
         self._seg_adapter = RealDicomSegAdapter(catalog, config)
 
     def _load_manual(self) -> Dict:
@@ -155,10 +157,37 @@ class RoiService:
         with self._manual_path.open("r", encoding="utf-8") as handle:
             return json.load(handle)
 
+    def _load_overrides(self) -> Dict:
+        if not self._override_path.exists():
+            return {}
+        with self._override_path.open("r", encoding="utf-8") as handle:
+            return json.load(handle)
+
+    def _save_overrides(self) -> None:
+        self._override_path.parent.mkdir(parents=True, exist_ok=True)
+        with self._override_path.open("w", encoding="utf-8") as handle:
+            json.dump(self._overrides, handle, indent=2)
+
+    def set_override(self, case_id: str, slice_id: int, roi: RoiShape) -> None:
+        self._overrides.setdefault("cases", {}).setdefault(case_id, {}).setdefault("slices", {})[
+            str(slice_id)
+        ] = {"rois": [roi.model_dump()]}
+        self._save_overrides()
+
+    def clear_override(self, case_id: str, slice_id: int) -> None:
+        case_blob = self._overrides.get("cases", {}).get(case_id, {})
+        slice_blob = case_blob.get("slices", {})
+        if str(slice_id) in slice_blob:
+            slice_blob.pop(str(slice_id), None)
+            self._save_overrides()
+
     def get_rois(self, case_id: str, slice_id: int) -> RoiResponse:
         meta = self.catalog.get_slice_meta(case_id, slice_id)
-        rois = self._seg_adapter.get_rois(case_id, slice_id)
-        source = "seg"
+        rois = self._override_rois(case_id, slice_id)
+        source = "user"
+        if rois is None:
+            rois = self._seg_adapter.get_rois(case_id, slice_id)
+            source = "seg"
         if rois is None:
             rois = self._manual_rois(case_id, slice_id)
             source = "manual"
@@ -186,6 +215,14 @@ class RoiService:
             image_width=meta.width,
             image_height=meta.height,
         )
+
+    def _override_rois(self, case_id: str, slice_id: int) -> Optional[List[RoiShape]]:
+        case_blob = self._overrides.get("cases", {}).get(case_id, {})
+        slice_blob = case_blob.get("slices", {}).get(str(slice_id), {})
+        rois: List[RoiShape] = []
+        for entry in slice_blob.get("rois", []):
+            rois.append(self._build_roi(entry))
+        return rois if rois else None
 
     def _manual_rois(self, case_id: str, slice_id: int) -> List[RoiShape]:
         rois: List[RoiShape] = []

@@ -33,6 +33,13 @@ class CatalogService:
         self._apply_dataset_mode()
         return self
 
+    def refresh(self) -> None:
+        self._catalog = self._build_catalog()
+        self._catalog_path.parent.mkdir(parents=True, exist_ok=True)
+        with self._catalog_path.open("w", encoding="utf-8") as handle:
+            json.dump(self._catalog, handle, indent=2)
+        self._apply_dataset_mode()
+
     def _apply_dataset_mode(self):
         dataset_cfg = self.config.get("dataset", {})
         mode = dataset_cfg.get("mode", "full")

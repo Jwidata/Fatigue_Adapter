@@ -65,14 +65,25 @@
               <div class="live-chip" id="status-pred">Predicted next look: --</div>
               <div class="live-chip" id="status-outcome">Outcome: --</div>
               <div class="live-chip" id="status-threshold">Adaptation threshold: --</div>
+              <div class="live-chip" id="status-alert">Alert: --</div>
+              <div class="live-chip" id="status-tobii">Tobii: --</div>
             </div>
           </div>
 
           <div class="image-stage" id="image-stage">
             <img id="slice-image" alt="CT slice" />
             <canvas id="roi-canvas"></canvas>
+            <canvas id="roi-edit-canvas"></canvas>
             <canvas id="gaze-canvas"></canvas>
             <div class="image-overlay" id="image-overlay">Focus on highlighted region</div>
+          </div>
+
+          <div class="roi-toolbar">
+            <div class="section-title">ROI Tools</div>
+            <label><input type="checkbox" id="toggle-roi-edit" /> Draw ROI</label>
+            <button id="undo-roi" class="button secondary" disabled>Undo ROI</button>
+            <button id="clear-roi" class="button secondary">Clear ROI</button>
+            <div class="roi-hint" id="roi-hint">Drag on image to define region</div>
           </div>
 
           <div class="toggle-row">
@@ -170,6 +181,7 @@
                 <option value="synthetic">Synthetic</option>
                 <option value="mouse">Mouse</option>
                 <option value="replay">Replay</option>
+                <option value="tobii">Tobii</option>
               </select>
             </div>
             <div class="control-group">
@@ -221,6 +233,33 @@
             <h2>Adaptation</h2>
             <div class="metric" id="adaptation-actions">Actions: --</div>
             <div class="metric" id="adaptation-message">Message: --</div>
+          </div>
+
+          <div class="card" id="upload-card">
+            <h2>Upload Scan</h2>
+            <div class="control-group">
+              <label>Case ID (optional)</label>
+              <input type="text" id="upload-case" placeholder="UPLOAD-123" />
+            </div>
+            <div class="control-group">
+              <label>Series ID (optional)</label>
+              <input type="text" id="upload-series" placeholder="series-1" />
+            </div>
+            <div class="control-group">
+              <label>Upload DICOM (.dcm) or ZIP</label>
+              <input type="file" id="upload-file" accept=".dcm,.zip" />
+            </div>
+            <button id="upload-button" class="button">Upload</button>
+            <div class="upload-status" id="upload-status">Status: --</div>
+          </div>
+
+          <div class="card" id="mock-card">
+            <h2>Mock Tobii</h2>
+            <div class="metric">Simulate Tobii gaze without hardware.</div>
+            <div class="control-row">
+              <button id="mock-tobii" class="button">Start mock stream</button>
+              <div class="mock-status" id="mock-status">Status: idle</div>
+            </div>
           </div>
         </aside>
       </main>

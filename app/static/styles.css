@@ -164,6 +164,10 @@ input {
   z-index: 3;
 }
 
+#roi-edit-canvas {
+  z-index: 4;
+}
+
 .image-stage.dimmed img {
   filter: saturate(0.5) contrast(0.85) brightness(0.6);
 }
@@ -188,6 +192,10 @@ input {
   border-radius: 18px;
   animation: roiPulse 2.6s ease-in-out infinite;
   pointer-events: none;
+}
+
+.image-stage.editing {
+  cursor: crosshair;
 }
 
 .image-overlay {
@@ -216,6 +224,29 @@ input {
   color: var(--muted);
   width: 100%;
   justify-content: center;
+}
+
+.roi-toolbar {
+  width: min(900px, 100%);
+  background: rgba(255, 255, 255, 0.7);
+  border: 1px solid rgba(39, 76, 89, 0.1);
+  border-radius: 14px;
+  padding: 10px 14px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.roi-toolbar .button[disabled] {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.roi-hint {
+  color: var(--muted);
+  font-size: 12px;
 }
 
 .legend-row {
@@ -268,6 +299,24 @@ input {
   border-radius: 18px;
   box-shadow: var(--shadow);
   border: 1px solid rgba(39, 76, 89, 0.08);
+}
+
+.upload-status {
+  margin-top: 8px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.control-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.mock-status {
+  font-size: 13px;
+  color: var(--muted);
 }
 
 .section-title {
@@ -346,6 +395,12 @@ input {
   padding: 6px 10px;
   border-radius: 999px;
   font-size: 12px;
+}
+
+.live-chip.alert {
+  background: rgba(255, 59, 47, 0.12);
+  color: #7c2f2f;
+  border: 1px solid rgba(255, 59, 47, 0.35);
 }
 
 .risk-bar {
